@@ -28,6 +28,7 @@ export class MetaFormComponent implements OnInit, OnChanges, OnDestroy {
   public showAppIcon = false;
   public appIconConfig: any;
   public appIcon: any;
+  public outcomeDeclaration:any;
   constructor(private editorService: EditorService, public treeService: TreeService,
               public frameworkService: FrameworkService, private helperService: HelperService,
               private configService: ConfigService) {
@@ -274,6 +275,16 @@ export class MetaFormComponent implements OnInit, OnChanges, OnDestroy {
     this.toolbarEmitter.emit({ button: 'onFormValueChange', data });
     this.treeService.updateNode(data);
   }
+
+  createLeavels(levels){
+    let obj={};
+    _.forEach(levels,(el,index)=>{
+      obj[`L${index+1}`] ={
+         label : el
+       }
+    })
+    return obj;
+}
 
   appIconDataHandler(event) {
     this.appIcon = event.url;

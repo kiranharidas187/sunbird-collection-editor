@@ -11,7 +11,7 @@ import { HelperService } from '../../services/helper/helper.service';
 import { IEditorConfig } from '../../interfaces/editor';
 import { ICreationContext } from '../../interfaces/CreationContext';
 import { Router } from '@angular/router';
-import { catchError, map, switchMap, takeUntil, tap } from 'rxjs/operators';
+import { catchError, filter, map, switchMap, take, takeUntil, tap } from 'rxjs/operators';
 import { Observable, throwError, forkJoin, Subscription, Subject, merge, of } from 'rxjs';
 import * as _ from 'lodash-es';
 import { ConfigService } from '../../services/config/config.service';
@@ -87,6 +87,8 @@ export class EditorComponent implements OnInit, OnDestroy, AfterViewInit {
   public sourcingSettings: any;
   setChildQuestion: any;
   public unsubscribe$ = new Subject<void>();
+  onComponentDestroy$ = new Subject<any>();
+  outcomeDeclaration:any;
   constructor(private editorService: EditorService, public treeService: TreeService, private frameworkService: FrameworkService,
               private helperService: HelperService, public telemetryService: EditorTelemetryService, private router: Router,
               private toasterService: ToasterService, private dialcodeService: DialcodeService,
@@ -287,6 +289,7 @@ export class EditorComponent implements OnInit, OnDestroy, AfterViewInit {
     // tslint:disable-next-line:max-line-length
     this.rootFormConfig = _.get(categoryDefinitionData, 'result.objectCategoryDefinition.forms.create.properties');
     console.log("setEditorForms");
+    this.setFeilds(this.rootFormConfig[0].fields);
     console.log(this.rootFormConfig[0].fields);
     let formData=this.rootFormConfig[0].fields;
     formData.forEach(field => {
@@ -294,8 +297,9 @@ export class EditorComponent implements OnInit, OnDestroy, AfterViewInit {
         evidenceMimeType = field.range;
         field.options = this.setEvidence;
         field.range = null;
-      }
-      else if (field.code === 'ecm') {
+      } else if (field.code === 'allowECM') {
+        field.options = this.setAllowEcm;
+      } else if (field.code === 'ecm') {
         ecm = field.options;
         field.options = this.setEcm;
       }
@@ -346,10 +350,10 @@ export class EditorComponent implements OnInit, OnDestroy, AfterViewInit {
     let hierarchyConfig;
     if (_.get(primaryCatConfig, 'result.objectCategoryDefinition.objectMetadata.config')) {
       hierarchyConfig = _.get(primaryCatConfig, 'result.objectCategoryDefinition.objectMetadata.config.sourcingSettings.collection');
-      if (!_.isEmpty(hierarchyConfig.children)) {
+      if (!_.isEmpty(hierarchyConfig?.children)) {
         hierarchyConfig.children = this.getHierarchyChildrenConfig(hierarchyConfig.children);
       }
-      if (!_.isEmpty(hierarchyConfig.hierarchy)) {
+      if (!_.isEmpty(hierarchyConfig?.hierarchy)) {
         _.forEach(hierarchyConfig.hierarchy, (hierarchyValue) => {
           if (_.get(hierarchyValue, 'children')) {
             hierarchyValue.children = this.getHierarchyChildrenConfig(_.get(hierarchyValue, 'children'));
@@ -357,8 +361,27 @@ export class EditorComponent implements OnInit, OnDestroy, AfterViewInit {
         });
       }
     }
-    this.ishierarchyConfigSet = true;
     this.editorConfig.config = _.assign(this.editorConfig.config, hierarchyConfig);
+    if (_.get(this.editorConfig, 'config.renderTaxonomy') === true && _.isEmpty(_.get(this.collectionTreeNodes, 'data.children'))) {
+      this.fetchFrameWorkDetails();
+    } else {
+      this.ishierarchyConfigSet = true;
+    }
+  }
+
+  fetchFrameWorkDetails() {
+    this.frameworkService.frameworkData$.pipe(
+      takeUntil(this.onComponentDestroy$),
+      filter(data => _.get(data, `frameworkdata.${this.frameworkService.organisationFramework}`)),
+      take(1)
+    ).subscribe((frameworkDetails: any) => {
+      if (frameworkDetails && !frameworkDetails.err) {
+        const orgFrameworkData = _.get(frameworkDetails, `frameworkdata.${this.frameworkService.organisationFramework}.categories`);
+        const categoryInstanceData = _.find(orgFrameworkData, {code: _.get(this.editorConfig, 'config.categoryInstance')});
+        this.collectionTreeNodes.data.children = _.get(categoryInstanceData, 'terms');
+        this.ishierarchyConfigSet = true;
+      }
+    });
   }
 
   getHierarchyChildrenConfig(childrenData) {
@@ -468,6 +491,9 @@ export class EditorComponent implements OnInit, OnDestroy, AfterViewInit {
       case 'showReviewcomments':
         this.showReviewModal = !this.showReviewModal;
         break;
+      case 'pagination':
+        this.pageId = 'pagination';
+        break;
       //case 'showCorrectioncomments':
         //this.contentComment = _.get(this.editorConfig, 'context.correctionComments')
         //this.showReviewModal = !this.showReviewModal;
@@ -486,9 +512,9 @@ export class EditorComponent implements OnInit, OnDestroy, AfterViewInit {
 
   updateToolbarTitle(data: any) {
     const selectedNode = this.treeService.getActiveNode();
-    if (!_.isEmpty(data.event.name) && selectedNode.data.root) {
+    if (!_.isEmpty(_.get(data, 'event.name')) && selectedNode.data.root) {
       this.toolbarConfig.title = data.event.name;
-    } else if (_.isEmpty(data.event.name) && selectedNode.data.root) {
+    } else if (_.isEmpty(_.get(data, 'event.name')) && selectedNode.data.root) {
       this.toolbarConfig.title = 'Untitled';
     }
   }
@@ -560,6 +586,7 @@ export class EditorComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   validateFormStatus() {
+    console.log(this.formStatusMapper);
     const isValid = _.every(this.formStatusMapper, Boolean);
     if (isValid) { return true; }
     _.forIn(this.formStatusMapper, (value, key) => {
@@ -885,7 +912,7 @@ export class EditorComponent implements OnInit, OnDestroy, AfterViewInit {
       questionSetId: this.collectionId,
       questionId: mode === 'edit' ? this.selectedNodeData.data.metadata.identifier : questionId,
       type: interactionType,
-      setChildQueston:mode === 'edit' ? false : this.setChildQuestion,
+      setChildQuestion:mode === 'edit' ? false : this.setChildQuestion,
       category: questionCategory,
       creationContext: this.creationContext, // Pass the creation context to the question-component
     };
@@ -948,6 +975,10 @@ export class EditorComponent implements OnInit, OnDestroy, AfterViewInit {
         this.isEnableCsvAction = true;
       });
     }
+  }
+
+  assignPageEmitterListener(event: any) {
+    this.pageId = 'collection_editor';
   }
 
   get contentPolicyUrl() {
@@ -1087,4 +1118,147 @@ export class EditorComponent implements OnInit, OnDestroy, AfterViewInit {
     );
     return response;
   }
+
+  setAllowEcm(control, depends: FormControl[], formGroup: FormGroup, loading, loaded){
+    control.isVisible = 'no';
+    const response = merge(..._.map(depends, depend => depend.valueChanges)).pipe(
+        switchMap((value: any) => {
+             console.log(value);
+             if (!_.isEmpty(value) && _.toLower(value) === 'self' ){
+                control.isVisible = 'no';
+                return of(null)
+             }
+             else{
+                control.isVisible = 'yes';
+                return of(null)
+             }
+        })
+    );
+    return response;
+  }
+
+  setFeilds(rootFormConfig){
+    if (_.get(this.editorConfig, 'config.renderTaxonomy') === true) {
+      let orgId = _.get(this.editorConfig, 'context.identifier');
+      console.log(orgId);
+      this.editorService.fetchOutComeDeclaration(orgId)
+        .subscribe((data: any) => {
+          if (data?.result) {
+            this.outcomeDeclaration = _.get(data?.result, 'questionset.outcomeDeclaration.levels');
+            this.editorService.outcomeDeclaration = this.outcomeDeclaration;
+            console.log("outcomeDeclaration");
+            console.log(this.outcomeDeclaration);
+            let levelsArray = Object.keys(this.outcomeDeclaration);
+            levelsArray.forEach((level, index) => {
+              let obj = {
+                name: this.outcomeDeclaration[level].label,
+                renderingHints: {
+                  class: 'grid three-column-grid hidden-sectionName',
+                },
+                fields: this.constructFields(level, index, this.outcomeDeclaration[level].label),
+              };
+              this.unitFormConfig.push(obj);
+            });
+
+            rootFormConfig.forEach(field => {
+              if(field.code === 'levels'){
+                let defaultValue = [];
+                levelsArray.forEach((level) => {
+                  defaultValue.push(this.outcomeDeclaration[level].label)
+                });
+                console.log(defaultValue)
+                field.default = defaultValue
+              }
+            });
+          }
+        });
+    }
+  }
+
+  constructFields(level,index,labelName) {
+    let levelName=level.toLowerCase();
+    let fieldArray = [
+      {
+        code: levelName,
+        name: levelName,
+        label: `Level ${index+1}`,
+        placeholder: `Level ${index+1}`,
+        description: `Level ${index+1}`,
+        dataType: 'text',
+        inputType: 'text',
+        editable: false,
+        default:labelName,
+        required: true,
+        visible: true,
+        renderingHints: {
+          class: 'sb-g-col-lg-1 required',
+        },
+        validations: [
+          {
+            type: 'maxLength',
+            value: '120',
+            message: 'Entered name is too long',
+          },
+          {
+            type: 'required',
+            message: 'Name is required',
+          },
+        ],
+      },
+      {
+        code: `${levelName}min`,
+        name: `${levelName}min`,
+        label: 'Minimum',
+        placeholder: 'Minimum',
+        description: 'Minimum',
+        dataType: 'text',
+        inputType: 'text',
+        editable: true,
+        required: true,
+        visible: true,
+        renderingHints: {
+          class: 'sb-g-col-lg-1 required',
+        },
+        validations: [
+          {
+            type: 'maxLength',
+            value: '120',
+            message: 'Entered name is too long',
+          },
+          {
+            type: 'required',
+            message: 'Name is required',
+          },
+        ],
+      },
+      {
+        code: `${levelName}man`,
+        name: `${levelName}man`,
+        label: 'Maximum',
+        placeholder: 'Maximum',
+        description: 'Maximum',
+        dataType: 'text',
+        inputType: 'text',
+        editable: true,
+        required: true,
+        visible: true,
+        renderingHints: {
+          class: 'sb-g-col-lg-1 required',
+        },
+        validations: [
+          {
+            type: 'maxLength',
+            value: '120',
+            message: 'Entered name is too long',
+          },
+          {
+            type: 'required',
+            message: 'Name is required',
+          },
+        ],
+      },
+    ];
+    return fieldArray;
+  }
+
 }

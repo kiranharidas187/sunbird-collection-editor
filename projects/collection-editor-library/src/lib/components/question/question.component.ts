@@ -125,9 +125,11 @@ export class QuestionComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngOnInit() {
-    const { questionSetId, questionId, type, category, config, creationContext, setChildQueston } = this.questionInput;
-    if (_.isUndefined(setChildQueston)) {
-      this.questionInput.setChildQueston = false;
+    const { questionSetId, questionId, type, category, config, creationContext, setChildQuestion } = this.questionInput;
+    console.log("ngOnInit");
+    console.log(this.questionInput);
+    if (_.isUndefined(setChildQuestion)) {
+      this.questionInput.setChildQuestion = false;
     }
     this.questionInteractionType = type;
     this.questionCategory = category;
@@ -183,22 +185,13 @@ export class QuestionComponent implements OnInit, AfterViewInit, OnDestroy {
       this.questionSetHierarchy = _.get(response, 'result.questionSet');
       const parentId = this.editorService.parentIdentifier ? this.editorService.parentIdentifier : this.questionId;
       const sectionData = this.treeService.getNodeById(parentId);
-      const childerns = _.get(response, 'result.questionSet.children');
+      const childrens = _.get(response, 'result.questionSet.children');
       this.sectionPrimaryCategory = _.get(response, 'result.questionSet.primaryCategory');
       this.selectedSectionId = _.get(sectionData, 'data.metadata.parent');
       if (parentId) {
         this.getParentQuestionOptions(parentId);
       }
-      _.forEach(childerns, (data) => {
-        if (data.identifier === this.selectedSectionId) {
-          this.branchingLogic = data?.branchingLogic ? data?.branchingLogic : {};
-          if (_.get(data?.branchingLogic, `${this.questionId}.source[0]`)) {
-            this.isChildQuestion = true;
-            this.getParentQuestionOptions(data.branchingLogic[this.questionId].source[0]);
-            this.setCondition(data);
-          }
-        }
-      });
+      this.checkForBranchingLogic(childrens);
       const leafFormConfigFields = _.join(_.map(this.questionFormConfig, value => (value.code)), ',');
       if (!_.isUndefined(this.questionId)) {
         this.questionService.readQuestion(this.questionId, leafFormConfigFields)
@@ -790,7 +783,7 @@ export class QuestionComponent implements OnInit, AfterViewInit, OnDestroy {
     return {
       nodesModified: {
         [questionId]: {
-          metadata: _.omit(this.getQuestionMetadata(), ['creator']),
+          metadata: _.omit(metaData, ['creator']),
           objectType: 'Question',
           root: false,
           isNew: !this.questionId
@@ -880,7 +873,7 @@ export class QuestionComponent implements OnInit, AfterViewInit, OnDestroy {
         }
       };
     }
-    //  return metaData;
+    return metaData;
   }
 
 
@@ -1228,10 +1221,10 @@ export class QuestionComponent implements OnInit, AfterViewInit, OnDestroy {
         value: [],
         enabled: false,
         type: '',
-        show: _.get(this.sourcingSettings, 'showAddSecondaryQuestion') && !this.questionInput.setChildQueston
+        show: _.get(this.sourcingSettings, 'showAddSecondaryQuestion') && !this.questionInput.setChildQuestion
       },
     ];
-    if (!_.get(this.sourcingSettings, 'showAddSecondaryQuestion') && !this.questionInput.setChildQueston) {
+    if (!_.get(this.sourcingSettings, 'showAddSecondaryQuestion') && !this.questionInput.setChildQuestion) {
       this.showOptions = false;
     } else {
     _.forEach(this.subMenus, (el) => {
@@ -1242,6 +1235,12 @@ export class QuestionComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     });
   }
+  if(this.questionInput.setChildQuestion){
+    this.showOptions=true;
+  }
+  console.log("showOptions");
+  console.log(this.questionInput.setChildQuestion);
+  console.log(this.showOptions);
   }
   ngOnDestroy() {
     this.onComponentDestroy$.next();
@@ -1280,6 +1279,22 @@ export class QuestionComponent implements OnInit, AfterViewInit, OnDestroy {
 
   optionHandler(e) {
     this.targetOption = e.target.value;
+  }
+
+  checkForBranchingLogic(childrens){
+    _.forEach(childrens, (data) => {
+      if (data.identifier === this.selectedSectionId) {
+        this.branchingLogic = data?.branchingLogic ? data?.branchingLogic : {};
+        if (_.get(data?.branchingLogic, `${this.questionId}.source[0]`)) {
+          this.isChildQuestion = true;
+          this.getParentQuestionOptions(data.branchingLogic[this.questionId].source[0]);
+          this.setCondition(data);
+        }
+      }
+      if(data?.children?.length){
+        this.checkForBranchingLogic(data?.children);
+      }
+    });
   }
 
 
